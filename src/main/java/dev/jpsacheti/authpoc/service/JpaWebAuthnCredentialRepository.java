@@ -9,9 +9,11 @@ import com.yubico.webauthn.data.PublicKeyCredentialDescriptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.nio.ByteBuffer;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -36,12 +38,15 @@ public class JpaWebAuthnCredentialRepository implements CredentialRepository {
     @Override
     public Optional<ByteArray> getUserHandleForUsername(String username) {
         return userRepository.findByUsername(username)
-                .map(user -> new ByteArray(user.getUsername().getBytes())); // Using username as handle for simplicity
+                .map(user -> new ByteArray(uuidToBytes(user.getId())));
     }
 
     @Override
     public Optional<String> getUsernameForUserHandle(ByteArray userHandle) {
-        return Optional.of(new String(userHandle.getBytes()));
+        byte[] bytes = userHandle.getBytes();
+        if (bytes.length != 16) return Optional.empty();
+        UUID id = bytesToUuid(bytes);
+        return userRepository.findById(id).map(u -> u.getUsername());
     }
 
     @Override
@@ -49,7 +54,7 @@ public class JpaWebAuthnCredentialRepository implements CredentialRepository {
         return credentialRepository.findByCredentialId(credentialId.getBytes())
                 .map(c -> RegisteredCredential.builder()
                         .credentialId(c.getCredentialIdByteArray())
-                        .userHandle(userHandle)
+                        .userHandle(new ByteArray(uuidToBytes(c.getUser().getId())))
                         .publicKeyCose(c.getPublicKeyCoseByteArray())
                         .signatureCount(c.getSignatureCount())
                         .build());
@@ -60,10 +65,24 @@ public class JpaWebAuthnCredentialRepository implements CredentialRepository {
         return credentialRepository.findByCredentialId(credentialId.getBytes()).stream()
                 .map(c -> RegisteredCredential.builder()
                         .credentialId(c.getCredentialIdByteArray())
-                        .userHandle(new ByteArray(c.getUser().getUsername().getBytes()))
+                        .userHandle(new ByteArray(uuidToBytes(c.getUser().getId())))
                         .publicKeyCose(c.getPublicKeyCoseByteArray())
                         .signatureCount(c.getSignatureCount())
                         .build())
                 .collect(Collectors.toSet());
+    }
+
+    private static byte[] uuidToBytes(UUID uuid) {
+        ByteBuffer bb = ByteBuffer.allocate(16);
+        bb.putLong(uuid.getMostSignificantBits());
+        bb.putLong(uuid.getLeastSignificantBits());
+        return bb.array();
+    }
+
+    private static UUID bytesToUuid(byte[] bytes) {
+        ByteBuffer bb = ByteBuffer.wrap(bytes);
+        long high = bb.getLong();
+        long low = bb.getLong();
+        return new UUID(high, low);
     }
 }

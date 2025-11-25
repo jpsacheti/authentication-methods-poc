@@ -3,6 +3,7 @@ package dev.jpsacheti.authpoc.controller;
 import dev.jpsacheti.authpoc.dto.AuthDtos;
 import dev.jpsacheti.authpoc.service.UserService;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18,13 +19,13 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<AuthDtos.AuthResponse> register(
-            @RequestBody AuthDtos.RegisterRequest request) {
+            @Valid @RequestBody AuthDtos.RegisterRequest request) {
         return ResponseEntity.ok(userService.register(request));
     }
 
     @PostMapping("/login")
     public ResponseEntity<AuthDtos.AuthResponse> login(
-            @RequestBody AuthDtos.LoginRequest request) {
+            @Valid @RequestBody AuthDtos.LoginRequest request) {
         return ResponseEntity.ok(userService.login(request));
     }
 }

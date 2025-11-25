@@ -26,11 +26,11 @@ public class WebAuthnCredential {
     private User user;
 
     @Lob
-    @Column(nullable = false, length = 10000)
+    @Column(nullable = false, length = 10000, unique = true, columnDefinition = "bytea")
     private byte[] credentialId;
 
     @Lob
-    @Column(nullable = false, length = 10000)
+    @Column(nullable = false, length = 10000, columnDefinition = "bytea")
     private byte[] publicKeyCose;
 
     @Column(nullable = false)

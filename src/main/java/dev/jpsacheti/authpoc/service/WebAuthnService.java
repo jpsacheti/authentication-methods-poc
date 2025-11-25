@@ -3,8 +3,10 @@ package dev.jpsacheti.authpoc.service;
 import dev.jpsacheti.authpoc.dto.AuthDtos;
 import dev.jpsacheti.authpoc.model.User;
 import dev.jpsacheti.authpoc.model.WebAuthnCredential;
+import dev.jpsacheti.authpoc.model.WebAuthnChallenge;
 import dev.jpsacheti.authpoc.repository.UserRepository;
 import dev.jpsacheti.authpoc.repository.WebAuthnCredentialRepository;
+import dev.jpsacheti.authpoc.repository.WebAuthnChallengeRepository;
 import dev.jpsacheti.authpoc.security.JwtService;
 import com.yubico.webauthn.*;
 import com.yubico.webauthn.data.*;
@@ -12,11 +14,10 @@ import com.yubico.webauthn.exception.AssertionFailedException;
 import com.yubico.webauthn.exception.RegistrationFailedException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
-import java.security.SecureRandom;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.nio.ByteBuffer;
 
 @Service
 @RequiredArgsConstructor
@@ -25,11 +26,10 @@ public class WebAuthnService {
     private final RelyingParty relyingParty;
     private final UserRepository userRepository;
     private final WebAuthnCredentialRepository credentialRepository;
+    private final WebAuthnChallengeRepository challengeRepository;
     private final JwtService jwtService;
 
-    // Temporary storage for challenges. In production, use Redis or Session.
-    private final Map<String, PublicKeyCredentialCreationOptions> registrationRequests = new ConcurrentHashMap<>();
-    private final Map<String, AssertionRequest> assertionRequests = new ConcurrentHashMap<>();
+    // Legacy in-memory maps replaced by Postgres-backed storage to keep POC simple and consistent across restarts.
 
     // --- Registration ---
 
@@ -50,7 +50,7 @@ public class WebAuthnService {
         UserIdentity userIdentity = UserIdentity.builder()
                 .name(username)
                 .displayName(user.getDisplayName())
-                .id(new ByteArray(user.getUsername().getBytes()))
+                .id(new ByteArray(uuidToBytes(user.getId())))
                 .build();
 
         PublicKeyCredentialCreationOptions options = relyingParty.startRegistration(StartRegistrationOptions.builder()
@@ -67,8 +67,13 @@ public class WebAuthnService {
         } catch (IOException e) {
             throw new RuntimeException("Failed to serialize options", e);
         }
-
-        registrationRequests.put(username, options);
+        // Persist challenge request JSON
+        challengeRepository.deleteByUsernameAndType(username, "REG");
+        challengeRepository.save(WebAuthnChallenge.builder()
+                .username(username)
+                .type("REG")
+                .requestJson(jsonOptions)
+                .build());
         return jsonOptions;
     }
 
@@ -80,10 +85,18 @@ public class WebAuthnService {
      * @param credentialJson The JSON string of the credential response from the
      *                       client.
      */
+    @Transactional
     public void finishRegistration(String username, String credentialJson) {
-        PublicKeyCredentialCreationOptions options = registrationRequests.remove(username);
-        if (options == null) {
+        var challengeOpt = challengeRepository.findTopByUsernameAndTypeOrderByCreatedAtDesc(username, "REG");
+        if (challengeOpt.isEmpty()) {
             throw new RuntimeException("Registration request not found");
+        }
+        String optionsJson = challengeOpt.get().getRequestJson();
+        PublicKeyCredentialCreationOptions options;
+        try {
+            options = PublicKeyCredentialCreationOptions.fromJson(optionsJson);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to deserialize registration options", e);
         }
 
         try {
@@ -103,6 +116,7 @@ public class WebAuthnService {
                     .build();
 
             credentialRepository.save(credential);
+            challengeRepository.deleteByUsernameAndType(username, "REG");
 
         } catch (RegistrationFailedException | IOException e) {
             throw new RuntimeException("Registration failed", e);
@@ -122,15 +136,27 @@ public class WebAuthnService {
         } catch (IOException e) {
             throw new RuntimeException("Failed to serialize options", e);
         }
-
-        assertionRequests.put(username, request);
+        challengeRepository.deleteByUsernameAndType(username, "ASSERT");
+        challengeRepository.save(WebAuthnChallenge.builder()
+                .username(username)
+                .type("ASSERT")
+                .requestJson(jsonOptions)
+                .build());
         return jsonOptions;
     }
 
+    @Transactional
     public AuthDtos.AuthResponse finishLogin(String username, String credentialJson) {
-        AssertionRequest request = assertionRequests.remove(username);
-        if (request == null) {
+        var challengeOpt = challengeRepository.findTopByUsernameAndTypeOrderByCreatedAtDesc(username, "ASSERT");
+        if (challengeOpt.isEmpty()) {
             throw new RuntimeException("Login request not found");
+        }
+        String requestJson = challengeOpt.get().getRequestJson();
+        AssertionRequest request;
+        try {
+            request = AssertionRequest.fromJson(requestJson);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to deserialize assertion request", e);
         }
 
         try {
@@ -154,10 +180,18 @@ public class WebAuthnService {
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
             String token = jwtService.generateToken(user);
+            challengeRepository.deleteByUsernameAndType(username, "ASSERT");
             return AuthDtos.AuthResponse.builder().token(token).build();
 
         } catch (AssertionFailedException | IOException e) {
             throw new RuntimeException("Authentication failed", e);
         }
+    }
+
+    private static byte[] uuidToBytes(java.util.UUID uuid) {
+        ByteBuffer bb = ByteBuffer.allocate(16);
+        bb.putLong(uuid.getMostSignificantBits());
+        bb.putLong(uuid.getLeastSignificantBits());
+        return bb.array();
     }
 }
