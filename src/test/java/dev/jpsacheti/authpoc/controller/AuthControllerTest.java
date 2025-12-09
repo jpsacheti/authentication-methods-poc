@@ -32,7 +32,7 @@ class AuthControllerTest {
 
     @Test
     void register_ShouldReturnOk() throws Exception {
-        AuthDtos.RegisterRequest request = new AuthDtos.RegisterRequest("user", "pass", "User");
+        AuthDtos.RegisterRequest request = new AuthDtos.RegisterRequest("user", "password123", "User");
         when(userService.register(any())).thenReturn(new AuthDtos.AuthResponse("token"));
 
         mockMvc.perform(post("/auth/register")

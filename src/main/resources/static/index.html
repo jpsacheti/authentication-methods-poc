@@ -1,240 +1,34 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auth POC - WebAuthn</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #f4f4f9;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-        .container {
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            width: 100%;
-            max-width: 400px;
-        }
-        h1 {
-            text-align: center;
-            color: #333;
-            margin-bottom: 1.5rem;
-        }
-        .form-group {
-            margin-bottom: 1rem;
-        }
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
-            color: #666;
-        }
-        input {
-            width: 100%;
-            padding: 0.5rem;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 1rem;
-        }
-        button {
-            width: 100%;
-            padding: 0.75rem;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            margin-top: 0.5rem;
-        }
-        button:hover {
-            background-color: #0056b3;
-        }
-        .secondary-btn {
-            background-color: #6c757d;
-            margin-top: 1rem;
-        }
-        .secondary-btn:hover {
-            background-color: #545b62;
-        }
-        #message {
-            margin-top: 1rem;
-            text-align: center;
-            font-weight: bold;
-        }
-        .hidden {
-            display: none;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <div class="container">
         <h1>WebAuthn POC</h1>
-        
+
         <div id="auth-forms">
             <div class="form-group">
                 <label for="username">Username</label>
                 <input type="text" id="username" placeholder="Enter username">
             </div>
-            
-            <button onclick="register()">Register New Device</button>
+
+            <div class="button-row">
+                <button onclick="registerWith('platform')">Register Passkey (Platform)</button>
+                <button class="secondary-btn" onclick="registerWith('cross-platform')">Register Security Key (YubiKey)</button>
+            </div>
             <button class="secondary-btn" onclick="login()">Login with Device</button>
         </div>
 
         <div id="message"></div>
     </div>
 
-    <script>
-        // --- Base64URL Utilities ---
-        function bufferToBase64url(buffer) {
-            const bytes = new Uint8Array(buffer);
-            let binary = '';
-            for (let i = 0; i < bytes.byteLength; i++) {
-                binary += String.fromCharCode(bytes[i]);
-            }
-            return btoa(binary)
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=/g, '');
-        }
-
-        function base64urlToBuffer(base64url) {
-            const padding = '='.repeat((4 - base64url.length % 4) % 4);
-            const base64 = (base64url + padding)
-                .replace(/-/g, '+')
-                .replace(/_/g, '/');
-            const rawData = atob(base64);
-            const outputArray = new Uint8Array(rawData.length);
-            for (let i = 0; i < rawData.length; ++i) {
-                outputArray[i] = rawData.charCodeAt(i);
-            }
-            return outputArray.buffer;
-        }
-
-        // --- WebAuthn Logic ---
-
-        async function register() {
-            const username = document.getElementById('username').value;
-            if (!username) return showMessage('Please enter a username', 'red');
-
-            try {
-                showMessage('Starting registration...', 'blue');
-
-                // 1. Get options from server
-                const startResponse = await fetch(`/webauthn/register/start?username=${username}`, { method: 'POST' });
-                if (!startResponse.ok) throw new Error('Failed to start registration');
-                const options = await startResponse.json();
-
-                // 2. Decode options
-                options.publicKey.challenge = base64urlToBuffer(options.publicKey.challenge);
-                options.publicKey.user.id = base64urlToBuffer(options.publicKey.user.id);
-                if (options.publicKey.excludeCredentials) {
-                    options.publicKey.excludeCredentials.forEach(c => {
-                        c.id = base64urlToBuffer(c.id);
-                    });
-                }
-
-                // 3. Create credential
-                const credential = await navigator.credentials.create(options);
-
-                // 4. Encode response
-                const credentialJson = JSON.stringify({
-                    id: credential.id,
-                    rawId: bufferToBase64url(credential.rawId),
-                    type: credential.type,
-                    response: {
-                        attestationObject: bufferToBase64url(credential.response.attestationObject),
-                        clientDataJSON: bufferToBase64url(credential.response.clientDataJSON)
-                    }
-                });
-
-                // 5. Finish registration
-                const finishResponse = await fetch(`/webauthn/register/finish?username=${username}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: credentialJson
-                });
-
-                if (finishResponse.ok) {
-                    showMessage('Registration successful!', 'green');
-                } else {
-                    throw new Error('Server rejected registration');
-                }
-
-            } catch (err) {
-                console.error(err);
-                showMessage('Registration failed: ' + err.message, 'red');
-            }
-        }
-
-        async function login() {
-            const username = document.getElementById('username').value;
-            if (!username) return showMessage('Please enter a username', 'red');
-
-            try {
-                showMessage('Starting login...', 'blue');
-
-                // 1. Get options from server
-                const startResponse = await fetch(`/webauthn/login/start?username=${username}`, { method: 'POST' });
-                if (!startResponse.ok) throw new Error('Failed to start login');
-                const options = await startResponse.json();
-
-                // 2. Decode options
-                options.publicKey.challenge = base64urlToBuffer(options.publicKey.challenge);
-                if (options.publicKey.allowCredentials) {
-                    options.publicKey.allowCredentials.forEach(c => {
-                        c.id = base64urlToBuffer(c.id);
-                    });
-                }
-
-                // 3. Get assertion
-                const assertion = await navigator.credentials.get(options);
-
-                // 4. Encode response
-                const assertionJson = JSON.stringify({
-                    id: assertion.id,
-                    rawId: bufferToBase64url(assertion.rawId),
-                    type: assertion.type,
-                    response: {
-                        authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
-                        clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
-                        signature: bufferToBase64url(assertion.response.signature),
-                        userHandle: assertion.response.userHandle ? bufferToBase64url(assertion.response.userHandle) : null
-                    }
-                });
-
-                // 5. Finish login
-                const finishResponse = await fetch(`/webauthn/login/finish?username=${username}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: assertionJson
-                });
-
-                if (finishResponse.ok) {
-                    const data = await finishResponse.json();
-                    showMessage('Login successful! Token: ' + data.token.substring(0, 20) + '...', 'green');
-                } else {
-                    throw new Error('Server rejected login');
-                }
-
-            } catch (err) {
-                console.error(err);
-                showMessage('Login failed: ' + err.message, 'red');
-            }
-        }
-
-        function showMessage(text, color) {
-            const el = document.getElementById('message');
-            el.innerText = text;
-            el.style.color = color || 'black';
-        }
-    </script>
+    <script src="app.js"></script>
 </body>
+
 </html>
