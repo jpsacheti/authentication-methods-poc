@@ -1,7 +1,6 @@
 package dev.jpsacheti.authpoc.config;
 
 import dev.jpsacheti.authpoc.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -57,7 +56,7 @@ import org.springframework.security.web.SecurityFilterChain;
  * <p>
  * Replace {@code .csrf(AbstractHttpConfigurer::disable)} with:
  * </p>
- * 
+ *
  * <pre>{@code
  * .csrf(csrf -> csrf
  *     .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
@@ -69,7 +68,7 @@ import org.springframework.security.web.SecurityFilterChain;
  * <p>
  * For SPA (Single Page Applications), add a filter to expose the token:
  * </p>
- * 
+ *
  * <pre>{@code
  * .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
  *
@@ -98,16 +97,19 @@ import org.springframework.security.web.SecurityFilterChain;
  * </ul>
  *
  * @see <a href=
- *      "https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html">
- *      Spring Security CSRF Documentation</a>
+ * "https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html">
+ * Spring Security CSRF Documentation</a>
  * @see org.springframework.security.web.csrf.CookieCsrfTokenRepository
  */
 @Configuration
 @EnableWebSecurity
-@RequiredArgsConstructor
 public class SecurityConfig {
 
     private final UserRepository userRepository;
+
+    public SecurityConfig(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
 
     /**
      * Configures the security filter chain.
@@ -143,8 +145,7 @@ public class SecurityConfig {
 
     @Bean
     public AuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
-        authProvider.setUserDetailsService(userDetailsService());
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider(userDetailsService());
         authProvider.setPasswordEncoder(passwordEncoder());
         return authProvider;
     }
