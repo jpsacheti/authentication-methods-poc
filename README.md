@@ -1,5 +1,7 @@
 # Authentication POC
 
+[![CI](https://github.com/jpsacheti/authentication-methods-poc/actions/workflows/ci.yml/badge.svg)](https://github.com/jpsacheti/authentication-methods-poc/actions/workflows/ci.yml)
+
 This project is a Proof of Concept (POC) demonstrating two authentication methods using Java and Spring Boot:
 1. Password Authentication: traditional username/password login with BCrypt hashing.
 2. WebAuthn (FIDO2): passwordless authentication using FIDO2 standards (e.g., Passkeys on Android/iOS/macOS/Windows and security keys like YubiKey).
@@ -169,4 +171,3 @@ Finish steps must be performed by the browser using the WebAuthn API (`navigator
 - JWT is generated after successful auth but is not used by a security filter in this POC.
 - H2 is used only for tests; runtime storage is PostgreSQL.
 - This is not production-hardened; it’s intended for learning/comparison.
-
